@@ -18,14 +18,36 @@ const ProfileSchema = z.object({
 const getProfileById = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const result = await pool.query(
-            `SELECT id, name, avatar_emoji, height_cm, weight_kg, age, gender, fitness_goal, has_completed_onboarding, is_admin,
+
+        // ── Ownership guard ───────────────────────────────────────────────────
+        // authenticateAny allows both account tokens (req.user.userId) and
+        // profile tokens (req.user.profile_id). Enforce that the requester
+        // actually owns this profile through one of those two claims.
+        //
+        //   Account token  → the profile must belong to this user's account
+        //   Profile token  → the token must be for this exact profile
+        //
+        // A caller that satisfies neither is rejected with 403.
+        // ─────────────────────────────────────────────────────────────────────
+        const accountUserId  = req.user.userId    || null;
+        const tokenProfileId = req.user.profile_id || null;
+
+        const ownershipResult = await pool.query(
+            `SELECT id, name, avatar_emoji, height_cm, weight_kg, age, gender, fitness_goal,
+                    has_completed_onboarding, is_admin,
                     CASE WHEN pin_hash IS NOT NULL THEN true ELSE false END as has_pin, created_at
-             FROM profiles WHERE id = ?`,
-            [id]
+             FROM profiles
+             WHERE id = ?
+               AND (user_id = ? OR id = ?)`,
+            [id, accountUserId, tokenProfileId]
         );
-        if (result.rows.length === 0) return res.status(404).json({ error: 'Profile not found' });
-        res.json(result.rows[0]);
+
+        if (ownershipResult.rows.length === 0) {
+            // Return 404 instead of 403 to avoid leaking that the profile exists
+            return res.status(404).json({ error: 'Profile not found' });
+        }
+
+        res.json(ownershipResult.rows[0]);
     } catch (err) {
         next(err);
     }
@@ -35,7 +57,7 @@ const getProfiles = async (req, res, next) => {
     try {
         // Must use Account token (req.user.userId)
         const result = await pool.query(
-            `SELECT id, name, avatar_emoji, height_cm, weight_kg, age, gender, fitness_goal, has_completed_onboarding, is_admin,
+            `SELECT id, user_id, name, avatar_emoji, height_cm, weight_kg, age, gender, fitness_goal, has_completed_onboarding, is_admin,
                     CASE WHEN pin_hash IS NOT NULL THEN true ELSE false END as has_pin, created_at
              FROM profiles WHERE user_id = ? ORDER BY created_at ASC`,
             [req.user.userId]
@@ -75,7 +97,7 @@ const createProfile = async (req, res, next) => {
         );
 
         const result = await pool.query(
-            `SELECT id, name, avatar_emoji, height_cm, weight_kg, age, gender, fitness_goal, has_completed_onboarding, is_admin,
+            `SELECT id, user_id, name, avatar_emoji, height_cm, weight_kg, age, gender, fitness_goal, has_completed_onboarding, is_admin,
                     CASE WHEN pin_hash IS NOT NULL THEN true ELSE false END as has_pin, created_at
              FROM profiles WHERE id = ?`,
             [profileId]
@@ -162,7 +184,7 @@ const updateProfile = async (req, res, next) => {
         }
 
         const result = await pool.query(
-            `SELECT id, name, avatar_emoji, height_cm, weight_kg, age, gender, fitness_goal, has_completed_onboarding, is_admin,
+            `SELECT id, user_id, name, avatar_emoji, height_cm, weight_kg, age, gender, fitness_goal, has_completed_onboarding, is_admin,
                     CASE WHEN pin_hash IS NOT NULL THEN true ELSE false END as has_pin, created_at
              FROM profiles WHERE id = ?`,
             [id]
@@ -271,8 +293,28 @@ const selectProfile = async (req, res, next) => {
     try {
         const { id } = req.params;
 
-        // Look up by profile ID only — any authenticated account can select any profile shown on this machine
-        const result = await pool.query('SELECT * FROM profiles WHERE id = ?', [id]);
+        // ── Machine-token path (kiosk boot) ──────────────────────────────────
+        // req.user.userId is '__machine__' — no account-level ownership check
+        // is possible. The machine is trusted at the hardware level via the
+        // shared MACHINE_SECRET header. Any profile visible on the kiosk
+        // screen (returned by /machine/boot) may be selected.
+        //
+        // ── Account-token path (/profiles/:id/select-account) ────────────────
+        // req.user.userId is a real user UUID. Enforce that the target profile
+        // belongs to THIS account — prevent cross-account token escalation.
+        // ─────────────────────────────────────────────────────────────────────
+        const isMachine = req.user.userId === '__machine__';
+
+        let result;
+        if (isMachine) {
+            result = await pool.query('SELECT * FROM profiles WHERE id = ?', [id]);
+        } else {
+            result = await pool.query(
+                'SELECT * FROM profiles WHERE id = ? AND user_id = ?',
+                [id, req.user.userId]
+            );
+        }
+
         if (result.rows.length === 0) return res.status(404).json({ error: 'Profile not found' });
 
         const profile = result.rows[0];
@@ -303,8 +345,26 @@ const verifyPin = async (req, res, next) => {
 
         if (!pin) return res.status(400).json({ error: 'PIN is required' });
 
-        // Look up by profile ID only — any authenticated account can verify a PIN
-        const result = await pool.query('SELECT * FROM profiles WHERE id = ?', [id]);
+        // ── Machine-token path (kiosk) ────────────────────────────────────────
+        // req.user.userId === '__machine__': trust the shared hardware secret;
+        // any profile on this kiosk can have its PIN verified.
+        //
+        // ── Account-token path (/profiles/:id/verify-pin-account) ────────────
+        // Scope the lookup to req.user.userId so a user cannot attempt PIN
+        // verification against a profile belonging to a different account.
+        // ─────────────────────────────────────────────────────────────────────
+        const isMachine = req.user.userId === '__machine__';
+
+        let result;
+        if (isMachine) {
+            result = await pool.query('SELECT * FROM profiles WHERE id = ?', [id]);
+        } else {
+            result = await pool.query(
+                'SELECT * FROM profiles WHERE id = ? AND user_id = ?',
+                [id, req.user.userId]
+            );
+        }
+
         if (result.rows.length === 0) return res.status(404).json({ error: 'Profile not found' });
 
         const profile = result.rows[0];

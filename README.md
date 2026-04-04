@@ -91,8 +91,8 @@ Astraa/
 
 | Feature | Description |
 |---|---|
-| **Authentication** | Secure register/login with JWT access tokens (15 min) + HTTP-only refresh tokens (7 days) |
-| **User Onboarding** | Collects height, weight, age, gender, and fitness goal to personalize everything |
+| **Authentication** | Dual-token identity! Secure register/login with distinct Account JWTs and Profile JWTs to strictly isolate sessions |
+| **Netflix-Style Profiles** | Multiple profiles under one account. Each profile has its own height, weight, goals, workouts, and private data |
 | **BMI & Body Analysis** | Calculates BMI, BMR, TDEE, ideal weight range, and categorizes your fitness |
 | **AI Workout Plans** | Goal-based plans (Strength / Aesthetic / Fat Loss) with exercises, sets, reps, and rest times |
 | **Diet & Macro Planner** | Calculates daily calories and macros (protein, fat, carbs) using Mifflin-St Jeor formula |
@@ -143,12 +143,13 @@ FRONTEND_URL=http://localhost:3000
 | `POST` | `/api/auth/logout` | Clear refresh token cookie |
 | `POST` | `/api/auth/refresh` | Get new access token |
 
-### User
+### Profiles (Account or Machine token)
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/user/me` | Get current user profile |
-| `PUT` | `/api/user/onboard` | Save height, weight, goal, etc. |
-| `POST` | `/api/user/intro-complete` | Mark onboarding video as watched |
+| `GET` | `/api/profiles` | List all profiles for the logged-in account |
+| `POST` | `/api/profiles` | Create a new fitness profile |
+| `PUT` | `/api/profiles/:id` | Update profile stats or pin (onboarding) |
+| `POST` | `/api/profiles/:id/select-account` | Select a profile and receive a scoped profileToken |
 
 ### Features (all require `Authorization: Bearer <token>`)
 | Method | Endpoint | Description |
@@ -206,6 +207,8 @@ FRONTEND_URL=http://localhost:3000
 6. **One-Click Launcher** — Added `START.bat` to automatically install dependencies, backup the database, launch the backend and frontend concurrently, and open the app in full-screen Kiosk mode.
 7. **Profile Management Fixes** — Updated backend allowing any logged-in user to create profiles, and fixed profile selection authentication for a seamless multi-user flow.
 8. **UI/UX Data Graceful Degradation** — Resolved dashboard bugs where invalid or missing numerical data displayed as `NaN`; data now gracefully defaults to sensible placeholders.
+9. **Netflix-Style Architecture** — Complete decoupling of Account identity (`users`) from Fitness identity (`profiles`), fixing auth loops and data persistence bugs.
+10. **Strict Data Isolation (Security)** — Full security audit completed. All fitness operations strictly scoped to active `profile_id`. IDOR vulnerabilities resolved by enforcing UUID ownership guards across all reads and writes.
 
 ---
 

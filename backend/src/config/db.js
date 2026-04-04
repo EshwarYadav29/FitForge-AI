@@ -25,11 +25,6 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
-  height_cm REAL,
-  weight_kg REAL,
-  age INTEGER,
-  gender TEXT CHECK(gender IN ('male','female')),
-  fitness_goal TEXT CHECK(fitness_goal IN ('strength','aesthetic','fat_loss')),
   has_completed_intro INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))

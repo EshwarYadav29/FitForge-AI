@@ -48,6 +48,16 @@ const uploadFoodImage = async (req, res, next) => {
         const imageBuffer = req.file.buffer;
         const mimeType = req.file.mimetype;
 
+        // Guard: confirm the profile_id in the JWT belongs to the userId in the JWT.
+        // This catches any crafted token where the two claims have been mismatched.
+        const profileCheck = await pool.query(
+            'SELECT user_id FROM profiles WHERE id = ? AND user_id = ?',
+            [req.user.profile_id, req.user.userId]
+        );
+        if (profileCheck.rows.length === 0) {
+            return res.status(403).json({ error: 'Profile does not belong to this account' });
+        }
+
         let analysis;
         try {
             analysis = await analyzeWithGemini(imageBuffer, mimeType);
@@ -86,6 +96,16 @@ const addManualEntry = async (req, res, next) => {
         if (!items || !Array.isArray(items)) {
             return res.status(400).json({ error: 'items must be an array of food items' });
         }
+
+        // Guard: confirm the profile_id in the JWT belongs to the userId in the JWT.
+        const profileCheck = await pool.query(
+            'SELECT user_id FROM profiles WHERE id = ? AND user_id = ?',
+            [req.user.profile_id, req.user.userId]
+        );
+        if (profileCheck.rows.length === 0) {
+            return res.status(403).json({ error: 'Profile does not belong to this account' });
+        }
+
         const totals = items.reduce(
             (acc, item) => ({
                 calories: acc.calories + (item.calories || 0),

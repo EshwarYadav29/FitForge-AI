@@ -19,7 +19,8 @@ const tablesToClean = [
     'nutrition_targets',
     'form_analyses',
     'machine_sessions',
-    'profiles' // MUST BE LAST due to foreign keys if they are enforced
+    'profiles', // MUST BE LAST due to foreign keys if they are enforced
+    'users' // Wiping user accounts as well
 ];
 
 let report = {};
